@@ -6,10 +6,12 @@ Converts a .PU file to an editable .PUMAP file
 """
 
 
-def translate_param(target, param_key, param_obj, task_key):
+def translate_param(output, param_key, param_obj, task_key):
     param_obj['id'] = int(param_key)
     param_obj['taskId'] = int(task_key)
     param_obj['description'] = param_obj.pop('timerInfo')
+
+    # Still kinda unsure if this will work properly
     param_obj['valueType'] = param_obj.pop('unit')
     if 'timeUnit' not in param_obj.keys():
         param_obj['timeUnit'] = 'minutes'
@@ -19,27 +21,29 @@ def translate_param(target, param_key, param_obj, task_key):
             param_obj['timeUnit'] = 'hours'
         else:
             param_obj['timeUnit'] = 'minutes'
-    target['params'].append(param_obj)
+    output['params'].append(param_obj)
 
 
-def translate_task(target, task_obj):
+def translate_task(output, task_obj):
     task_obj['id'] = int(task_obj['id'])
     task_obj['description'] = task_obj.pop('task')
 
     for tag in task_obj['tags']:
-        target['tags'].append(tag)
+        output['tags'].append(tag)
+
     # Filter parameters into own list
     params = task_obj.pop('parameters')
     for param_key, param_obj in params.items():
-        translate_param(target, param_key, param_obj, task_obj['id'])
-    target['tasks'].append(task_obj)
+        translate_param(output, param_key, param_obj, task_obj['id'])
+    output['tasks'].append(task_obj)
+
     if 'isExam' in task_obj.keys() and task_obj['isExam'] is True:
         return 'exam', int(task_obj['id'])
     else:
         return 'reg', int(task_obj['id'])
 
 
-def translate_perks(target, perk_obj):
+def translate_perks(output, perk_obj):
     perk_obj['id'] = int(perk_obj['id'])
     perk_obj.pop('job')
     perk_obj.pop('perk')
@@ -47,8 +51,8 @@ def translate_perks(target, perk_obj):
         perk_obj['description'] = "undefined"
     if 'tags' in perk_obj.keys():
         for tag in perk_obj['tags']:
-            target['tags'].append(tag)
-    target['modifiers'].append(perk_obj)
+            output['tags'].append(tag)
+    output['modifiers'].append(perk_obj)
 
 
 def main():
@@ -62,7 +66,8 @@ def main():
         exit(2)
     output_path = input_path + 'map'
 
-    target = json.loads('{"version":1, "mapId":"", "globalIndex":-1, "general":{}, "tags":[], "majors":[], '
+    #
+    output = json.loads('{"version":1, "mapId":"", "globalIndex":-1, "general":{}, "tags":[], "majors":[], '
                         '"classes":[], "tasks":[], "params":[], "punishments":[], "clubs":[], "partners":[], '
                         '"modifiers":[], "help":[], "rouletteOptions":[]}')
 
@@ -70,10 +75,10 @@ def main():
         content = json.load(json_file)
 
         # General stuff
-        target['mapId'] = content['mapId']
-        target['general'] = content['general']
-        if 'moduleId' in target.keys():
-            target['moduleId'] = content['moduleId']
+        output['mapId'] = content['mapId']
+        output['general'] = content['general']
+        if 'moduleId' in output.keys():
+            output['moduleId'] = content['moduleId']
 
         # Sorting and Renaming, mostly
         for class_key, class_obj in content['classes'].items():
@@ -84,14 +89,14 @@ def main():
             task_ids = {'reg': [], 'exam': []}
             # Filter tasks into own list
             for task_key, task_obj in tasks.items():
-                task_type, task_id = translate_task(target, task_obj)
+                task_type, task_id = translate_task(output, task_obj)
                 task_ids[task_type].append(task_id)
             if 'imageUrl' not in class_obj.keys():
                 class_obj['imageUrl'] = ""
             class_obj['tasks'] = task_ids['reg']
             class_obj['exams'] = task_ids['exam']
             class_obj.pop('type')
-            target['classes'].append(class_obj)
+            output['classes'].append(class_obj)
 
         for major_key, major_obj in content['majors'].items():
             major_obj.pop('type')
@@ -104,7 +109,7 @@ def main():
             tasks = major_obj.pop('tasks')
             for task_key, task_obj in tasks.items():
                 major_obj['exams'].append(task_obj)
-            target['majors'].append(major_obj)
+            output['majors'].append(major_obj)
 
         for part_key, part_obj in content['partners'].items():
             part_obj['id'] = int(part_obj['id'])
@@ -117,8 +122,8 @@ def main():
             part_obj['modifiers'] = []
             for perk_key, perk_obj in perks.items():
                 part_obj['modifiers'].append(int(perk_obj['id']))
-                translate_perks(target, perk_obj)
-            target['partners'].append(part_obj)
+                translate_perks(output, perk_obj)
+            output['partners'].append(part_obj)
 
         for club_key, club_obj in content['clubs'].items():
             club_obj['id'] = int(club_obj['id'])
@@ -129,8 +134,8 @@ def main():
             club_obj['modifiers'] = []
             for perk_key, perk_obj in perks.items():
                 club_obj['modifiers'].append(int(perk_obj['id']))
-                translate_perks(target, perk_obj)
-            target['clubs'].append(club_obj)
+                translate_perks(output, perk_obj)
+            output['clubs'].append(club_obj)
 
         for pun_key, pun_obj in content['punishments'].items():
             pun_obj['id'] = int(pun_obj['id'])
@@ -140,23 +145,23 @@ def main():
                 pun_obj['imageUrl'] = ""
             tasks = pun_obj.pop('tasks')
             for task_key, task_obj in tasks.items():
-                task_type, task_id = translate_task(target, task_obj)
+                task_type, task_id = translate_task(output, task_obj)
                 pun_obj['punishment'] = task_id
-            target['punishments'].append(pun_obj)
+            output['punishments'].append(pun_obj)
 
         for roul_key, roul_obj in content['rouletteOptions'].items():
             roul_obj['id'] = int(roul_obj['id'])
             roul_obj.pop('type')
-            target['rouletteOptions'].append(roul_obj)
+            output['rouletteOptions'].append(roul_obj)
 
-        target['help'] = content['general']['help']
+        output['help'] = content['general']['help']
 
         # Deduplicate tags
-        target['tags'] = list(set(target['tags']))
+        output['tags'] = list(set(output['tags']))
 
-        # Remove duplicate JSON-objects
+        # Deduplicate JSON-objects
         ids = []
-        for group_key, group_list in target.items():
+        for group_key, group_list in output.items():
             # Only check top-level keys that actually contain JSON-objects
             if isinstance(group_list, list) and group_key != 'tags':
                 group_list[:] = {each['id']: each for each in group_list}.values()
@@ -164,10 +169,10 @@ def main():
                     ids.append(subgroup_dict['id'])
 
         # Set globalIndex
-        target['globalIndex'] = max(ids) + 1
+        output['globalIndex'] = max(ids) + 1
 
         with open(output_path, 'w') as output_file:
-            json.dump(target, output_file)
+            json.dump(output, output_file)
             output_file.close()
 
         json_file.close()
