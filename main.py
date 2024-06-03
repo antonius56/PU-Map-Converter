@@ -71,9 +71,11 @@ def main():
                         '"classes":[], "tasks":[], "params":[], "punishments":[], "clubs":[], "partners":[], '
                         '"modifiers":[], "help":[], "rouletteOptions":[]}')
 
+    print("Reading File")
     with open(input_path) as json_file:
         content = json.load(json_file)
 
+        print("Converting")
         # General stuff
         output['mapId'] = content['mapId']
         output['general'] = content['general']
@@ -108,7 +110,9 @@ def main():
             major_obj['exams'] = []
             tasks = major_obj.pop('tasks')
             for task_key, task_obj in tasks.items():
-                major_obj['exams'].append(task_obj)
+                major_obj['exams'].append(int(task_obj['id']))
+                task_obj.pop("isExam")
+                translate_task(output, task_obj)
             output['majors'].append(major_obj)
 
         for part_key, part_obj in content['partners'].items():
@@ -155,6 +159,7 @@ def main():
             output['rouletteOptions'].append(roul_obj)
 
         output['help'] = content['general']['help']
+        # output['general'].pop('help')
 
         # Deduplicate tags
         output['tags'] = list(set(output['tags']))
@@ -176,6 +181,7 @@ def main():
             output_file.close()
 
         json_file.close()
+        print("Done")
 
 
 if __name__ == '__main__':
