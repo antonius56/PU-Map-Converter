@@ -1,12 +1,12 @@
 import json
 import argparse
-from jsondiff import diff
+from deepdiff import DeepDiff
 
 """
 Debug Script
 Export Editable Map and Playable Map, convert latter using main.py, run this using paths to both Editable Map and 
 conversion result. Ideally the result will be "{}" (an empty dict). Anything else might (might! Sometimes 
-different list orders get marked) indicate a mistake in main.py
+different list orders get marked or the difference is inconsequential) indicate a mistake in main.py
 """
 
 
@@ -26,7 +26,7 @@ def main():
             real_obj = json.load(real_file)
             compare_obj = json.load(compare_file)
 
-            print(diff(real_obj, compare_obj))
+            print(DeepDiff(real_obj, compare_obj, ignore_order=True))
 
 
 if __name__ == '__main__':

@@ -35,11 +35,12 @@ def translate_task(output, task_obj):
     params = task_obj.pop('parameters')
     for param_key, param_obj in params.items():
         translate_param(output, param_key, param_obj, task_obj['id'])
-    output['tasks'].append(task_obj)
 
-    if 'isExam' in task_obj.keys() and task_obj['isExam'] is True:
+    if 'isExam' in task_obj.keys() and task_obj.pop('isExam') is True:
+        output['tasks'].append(task_obj)
         return 'exam', int(task_obj['id'])
     else:
+        output['tasks'].append(task_obj)
         return 'reg', int(task_obj['id'])
 
 
@@ -47,8 +48,8 @@ def translate_perks(output, perk_obj):
     perk_obj['id'] = int(perk_obj['id'])
     perk_obj.pop('job')
     perk_obj.pop('perk')
-    if 'description' not in perk_obj.keys():
-        perk_obj['description'] = "undefined"
+    # if 'description' not in perk_obj.keys():
+    #    perk_obj['description'] = "undefined"
     if 'tags' in perk_obj.keys():
         for tag in perk_obj['tags']:
             output['tags'].append(tag)
