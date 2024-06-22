@@ -73,7 +73,7 @@ def main():
                         '"modifiers":[], "help":[], "rouletteOptions":[]}')
 
     print("Reading File")
-    with open(input_path) as json_file:
+    with open(input_path, encoding='utf-8') as json_file:
         content = json.load(json_file)
 
         print("Converting")
@@ -177,7 +177,7 @@ def main():
         # Set globalIndex
         output['globalIndex'] = max(ids) + 1
 
-        with open(output_path, 'w') as output_file:
+        with open(output_path, 'w', encoding='utf-8') as output_file:
             json.dump(output, output_file)
             output_file.close()
 
