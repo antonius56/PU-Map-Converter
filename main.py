@@ -58,10 +58,14 @@ def translate_perks(output, perk_obj):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("input", metavar='Input Path', type=str, help='- Absolute path to *.pu file')
+    parser.add_argument("input", metavar='Input Path', type=str, nargs='?', help='- Absolute path to *.pu file')
     args = parser.parse_args()
 
-    input_path = args.input
+    if args.input is not None:
+        input_path = args.input
+    else:
+        input_path = input("Please enter the input path: ").strip("\"")
+
     if not input_path.endswith('pu'):
         print('Only *.pu files can be converted')
         exit(2)
