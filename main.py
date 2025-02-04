@@ -14,6 +14,7 @@ def translate_param(output, param_key, param_obj, task_key):
     # Still kinda unsure if this will work properly
     param_obj['valueType'] = param_obj.pop('unit')
     if 'timeUnit' not in param_obj.keys():
+        param_obj['value'] = param_obj['value'] or 0
         param_obj['timeUnit'] = 'minutes'
         if param_obj['value'] % 1440 == 0:
             param_obj['timeUnit'] = 'days'
@@ -26,10 +27,13 @@ def translate_param(output, param_key, param_obj, task_key):
 
 def translate_task(output, task_obj):
     task_obj['id'] = int(task_obj['id'])
-    task_obj['description'] = task_obj.pop('task')
-
-    for tag in task_obj['tags']:
-        output['tags'].append(tag)
+    
+    if 'task' in task_obj: 
+        task_obj['description'] = task_obj.pop('task')
+        
+    if 'tags' in task_obj:
+        for tag in task_obj['tags']:
+            output['tags'].append(tag)
 
     # Filter parameters into own list
     params = task_obj.pop('parameters')
@@ -191,3 +195,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+    input()
