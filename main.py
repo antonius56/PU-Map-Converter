@@ -1,5 +1,9 @@
 import argparse
 import json
+import base64
+import zlib
+from urllib.parse import unquote_to_bytes
+
 
 """
 Converts a .PU file to an editable .PUMAP file
@@ -59,6 +63,53 @@ def translate_perks(output, perk_obj):
             output['tags'].append(tag)
     output['modifiers'].append(perk_obj)
 
+def load_pu_any(input_path: str) -> dict:
+    """
+    Loads either:
+      A) plain JSON text file
+      B) packed .pu: Base64 -> raw DEFLATE -> URL-decode -> JSON
+    Returns parsed JSON as a dict.
+    """
+    # Read raw bytes once
+    with open(input_path, "rb") as f:
+        raw = f.read()
+
+    # First try: plain JSON (utf-8 text)
+    try:
+        text = raw.decode("utf-8-sig")
+        return json.loads(text)
+    except Exception:
+        pass
+
+    # Second try: packed format
+    # Step 1: Base64 decode (strip whitespace just in case)
+    try:
+        b64 = b"".join(raw.split())
+        decoded = base64.b64decode(b64, validate=True)
+    except Exception as e:
+        raise ValueError("Input is neither plain JSON nor valid Base64-packed .pu") from e
+
+    # Step 2: raw DEFLATE decompress
+    try:
+        inflated = zlib.decompress(decoded, wbits=-zlib.MAX_WBITS)
+    except Exception as e:
+        raise ValueError("Base64 decoded, but raw-DEFLATE decompression failed") from e
+
+    # Step 3: URL decode (percent-decoding) -> bytes
+    # inflated is ASCII like b"%7B%22mapId%22..."
+    try:
+        inflated_text = inflated.decode("ascii")
+    except UnicodeDecodeError:
+        inflated_text = inflated.decode("latin-1")  # fallback
+
+    url_decoded_bytes = unquote_to_bytes(inflated_text)
+
+    # Step 4: JSON parse (utf-8)
+    try:
+        return json.loads(url_decoded_bytes.decode("utf-8-sig"))
+    except Exception as e:
+        raise ValueError("Decompressed and URL-decoded, but JSON parsing failed") from e
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -81,117 +132,113 @@ def main():
                         '"modifiers":[], "help":[], "rouletteOptions":[]}')
 
     print("Reading File")
-    with open(input_path, encoding='utf-8') as json_file:
-        content = json.load(json_file)
+    content = load_pu_any(input_path)
+    
+    print("Converting")
+    # General stuff
+    output['mapId'] = content['mapId']
+    output['general'] = content['general']
+    if 'moduleId' in output.keys():
+        output['moduleId'] = content['moduleId']
 
-        print("Converting")
-        # General stuff
-        output['mapId'] = content['mapId']
-        output['general'] = content['general']
-        if 'moduleId' in output.keys():
-            output['moduleId'] = content['moduleId']
+    # Sorting and Renaming, mostly
+    for class_key, class_obj in content['classes'].items():
+        class_obj['id'] = int(class_obj['id'])
+        class_obj['title'] = class_obj.pop('name')
+        class_obj['subtitle'] = class_obj.pop('name2')
+        tasks = class_obj.pop('tasks')
+        task_ids = {'reg': [], 'exam': []}
+        # Filter tasks into own list
+        for task_key, task_obj in tasks.items():
+            task_type, task_id = translate_task(output, task_obj)
+            task_ids[task_type].append(task_id)
+        if 'imageUrl' not in class_obj.keys():
+            class_obj['imageUrl'] = ""
+        class_obj['tasks'] = task_ids['reg']
+        class_obj['exams'] = task_ids['exam']
+        class_obj.pop('type')
+        output['classes'].append(class_obj)
 
-        # Sorting and Renaming, mostly
-        for class_key, class_obj in content['classes'].items():
-            class_obj['id'] = int(class_obj['id'])
-            class_obj['title'] = class_obj.pop('name')
-            class_obj['subtitle'] = class_obj.pop('name2')
-            tasks = class_obj.pop('tasks')
-            task_ids = {'reg': [], 'exam': []}
-            # Filter tasks into own list
-            for task_key, task_obj in tasks.items():
-                task_type, task_id = translate_task(output, task_obj)
-                task_ids[task_type].append(task_id)
-            if 'imageUrl' not in class_obj.keys():
-                class_obj['imageUrl'] = ""
-            class_obj['tasks'] = task_ids['reg']
-            class_obj['exams'] = task_ids['exam']
-            class_obj.pop('type')
-            output['classes'].append(class_obj)
+    for major_key, major_obj in content['majors'].items():
+        major_obj.pop('type')
+        major_obj['id'] = int(major_obj['id'])
+        major_obj['title'] = major_obj.pop('name')
+        major_obj['subtitle'] = major_obj.pop('name2')
+        if 'imageUrl' not in major_obj.keys():
+            major_obj['imageUrl'] = ""
+        major_obj['exams'] = []
+        tasks = major_obj.pop('tasks')
+        for task_key, task_obj in tasks.items():
+            major_obj['exams'].append(int(task_obj['id']))
+            task_obj.pop("isExam")
+            translate_task(output, task_obj)
+        output['majors'].append(major_obj)
 
-        for major_key, major_obj in content['majors'].items():
-            major_obj.pop('type')
-            major_obj['id'] = int(major_obj['id'])
-            major_obj['title'] = major_obj.pop('name')
-            major_obj['subtitle'] = major_obj.pop('name2')
-            if 'imageUrl' not in major_obj.keys():
-                major_obj['imageUrl'] = ""
-            major_obj['exams'] = []
-            tasks = major_obj.pop('tasks')
-            for task_key, task_obj in tasks.items():
-                major_obj['exams'].append(int(task_obj['id']))
-                task_obj.pop("isExam")
-                translate_task(output, task_obj)
-            output['majors'].append(major_obj)
+    for part_key, part_obj in content['partners'].items():
+        part_obj['id'] = int(part_obj['id'])
+        part_obj.pop('type')
+        part_obj.pop('name2')
+        part_obj.pop('tier')  # TODO What is the point of that key?
+        if 'imageUrl' not in part_obj.keys():
+            part_obj['imageUrl'] = ""
+        perks = part_obj.pop('perks')
+        part_obj['modifiers'] = []
+        for perk_key, perk_obj in perks.items():
+            part_obj['modifiers'].append(int(perk_obj['id']))
+            translate_perks(output, perk_obj)
+        output['partners'].append(part_obj)
 
-        for part_key, part_obj in content['partners'].items():
-            part_obj['id'] = int(part_obj['id'])
-            part_obj.pop('type')
-            part_obj.pop('name2')
-            part_obj.pop('tier')  # TODO What is the point of that key?
-            if 'imageUrl' not in part_obj.keys():
-                part_obj['imageUrl'] = ""
-            perks = part_obj.pop('perks')
-            part_obj['modifiers'] = []
-            for perk_key, perk_obj in perks.items():
-                part_obj['modifiers'].append(int(perk_obj['id']))
-                translate_perks(output, perk_obj)
-            output['partners'].append(part_obj)
+    for club_key, club_obj in content['clubs'].items():
+        club_obj['id'] = int(club_obj['id'])
+        club_obj.pop('type')
+        if 'imageUrl' not in club_obj.keys():
+            club_obj['imageUrl'] = ""
+        perks = club_obj.pop('perks')
+        club_obj['modifiers'] = []
+        for perk_key, perk_obj in perks.items():
+            club_obj['modifiers'].append(int(perk_obj['id']))
+            translate_perks(output, perk_obj)
+        output['clubs'].append(club_obj)
 
-        for club_key, club_obj in content['clubs'].items():
-            club_obj['id'] = int(club_obj['id'])
-            club_obj.pop('type')
-            if 'imageUrl' not in club_obj.keys():
-                club_obj['imageUrl'] = ""
-            perks = club_obj.pop('perks')
-            club_obj['modifiers'] = []
-            for perk_key, perk_obj in perks.items():
-                club_obj['modifiers'].append(int(perk_obj['id']))
-                translate_perks(output, perk_obj)
-            output['clubs'].append(club_obj)
+    for pun_key, pun_obj in content['punishments'].items():
+        pun_obj['id'] = int(pun_obj['id'])
+        pun_obj['title'] = pun_obj.pop('name')
+        pun_obj.pop('type')
+        if 'imageUrl' not in pun_obj.keys():
+            pun_obj['imageUrl'] = ""
+        tasks = pun_obj.pop('tasks')
+        for task_key, task_obj in tasks.items():
+            task_type, task_id = translate_task(output, task_obj)
+            pun_obj['punishment'] = task_id
+        output['punishments'].append(pun_obj)
 
-        for pun_key, pun_obj in content['punishments'].items():
-            pun_obj['id'] = int(pun_obj['id'])
-            pun_obj['title'] = pun_obj.pop('name')
-            pun_obj.pop('type')
-            if 'imageUrl' not in pun_obj.keys():
-                pun_obj['imageUrl'] = ""
-            tasks = pun_obj.pop('tasks')
-            for task_key, task_obj in tasks.items():
-                task_type, task_id = translate_task(output, task_obj)
-                pun_obj['punishment'] = task_id
-            output['punishments'].append(pun_obj)
+    for roul_key, roul_obj in content['rouletteOptions'].items():
+        roul_obj['id'] = int(roul_obj['id'])
+        roul_obj.pop('type')
+        output['rouletteOptions'].append(roul_obj)
 
-        for roul_key, roul_obj in content['rouletteOptions'].items():
-            roul_obj['id'] = int(roul_obj['id'])
-            roul_obj.pop('type')
-            output['rouletteOptions'].append(roul_obj)
+    output['help'] = content['general']['help']
+    # output['general'].pop('help')
 
-        output['help'] = content['general']['help']
-        # output['general'].pop('help')
+    # Deduplicate tags
+    output['tags'] = list(set(output['tags']))
 
-        # Deduplicate tags
-        output['tags'] = list(set(output['tags']))
+    # Deduplicate JSON-objects
+    ids = []
+    for group_key, group_list in output.items():
+        # Only check top-level keys that actually contain JSON-objects
+        if isinstance(group_list, list) and group_key != 'tags':
+            group_list[:] = {each['id']: each for each in group_list}.values()
+            for subgroup_dict in group_list:
+                ids.append(subgroup_dict['id'])
 
-        # Deduplicate JSON-objects
-        ids = []
-        for group_key, group_list in output.items():
-            # Only check top-level keys that actually contain JSON-objects
-            if isinstance(group_list, list) and group_key != 'tags':
-                group_list[:] = {each['id']: each for each in group_list}.values()
-                for subgroup_dict in group_list:
-                    ids.append(subgroup_dict['id'])
+    # Set globalIndex
+    output['globalIndex'] = max(ids) + 1
 
-        # Set globalIndex
-        output['globalIndex'] = max(ids) + 1
+    with open(output_path, 'w', encoding='utf-8') as output_file:
+        json.dump(output, output_file)
 
-        with open(output_path, 'w', encoding='utf-8') as output_file:
-            json.dump(output, output_file)
-            output_file.close()
-
-        json_file.close()
-        print("Done")
-
+    print("Done")
 
 if __name__ == '__main__':
     main()
